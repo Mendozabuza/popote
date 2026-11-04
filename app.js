@@ -600,7 +600,19 @@ function applyScan(){
 }
 let toastT=null;
 function toast(t){const el=document.getElementById("toast");el.textContent=t;el.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>el.hidden=true,2800)}
-function setTab(t){tab=t;document.querySelectorAll("nav.tabs button").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===t));document.querySelectorAll("section.view").forEach(v=>v.hidden=v.id!=="v-"+t);window.scrollTo({top:0});try{localStorage.setItem("popote-tab",t)}catch(e){}}
+const TABS=[...document.querySelectorAll("nav.tabs button")].map(b=>b.dataset.tab);
+const calm=()=>window.matchMedia("(prefers-reduced-motion: reduce)").matches||!Element.prototype.animate;
+function setTab(t){
+  const prev=tab,from=document.getElementById("v-"+prev),to=document.getElementById("v-"+t);
+  const slide=prev!==t&&from&&!from.hidden&&!calm();
+  tab=t;document.querySelectorAll("nav.tabs button").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===t));
+  if(slide){const dir=TABS.indexOf(t)>TABS.indexOf(prev)?1:-1,r=from.getBoundingClientRect();
+    const ghost=from.cloneNode(true);ghost.removeAttribute("id");ghost.setAttribute("aria-hidden","true");ghost.inert=true;
+    Object.assign(ghost.style,{position:"fixed",top:r.top+"px",left:r.left+"px",width:r.width+"px",margin:"0",pointerEvents:"none",zIndex:"5"});
+    document.body.appendChild(ghost);
+    ghost.animate([{transform:"translateX(0)",opacity:1},{transform:`translateX(${-30*dir}%)`,opacity:0}],{duration:300,easing:"cubic-bezier(.2,.8,.2,1)",fill:"forwards"});setTimeout(()=>ghost.remove(),400);
+    to.animate([{transform:`translateX(${100*dir}%)`},{transform:"translateX(0)"}],{duration:300,easing:"cubic-bezier(.2,.8,.2,1)"})}
+  document.querySelectorAll("section.view").forEach(v=>v.hidden=v.id!=="v-"+t);window.scrollTo({top:0});try{localStorage.setItem("popote-tab",t)}catch(e){}}
 function copyList(){
   const sh=shopping();const by={};for(const it of sh.items)(by[CAT[it.id].ray]=by[CAT[it.id].ray]||[]).push(it);
   let txt="Courses Lidl, semaine du "+shortDate(dayDate(0))+"\n";
@@ -701,6 +713,9 @@ document.addEventListener("submit",e=>{
 document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!document.getElementById("modal").hidden)closeModal()});
 
 /* ---------- Démarrage ---------- */
+// Pas de zoom au pincement (Safari iOS ignore user-scalable=no)
+for(const ev of["gesturestart","gesturechange","gestureend"])document.addEventListener(ev,e=>e.preventDefault(),{passive:false});
+document.addEventListener("touchmove",e=>{if(e.touches.length>1)e.preventDefault()},{passive:false});
 loadLocal();
 if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});
 if("serviceWorker" in navigator&&location.protocol!=="file:")window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));

@@ -1,5 +1,5 @@
 // Popote : fonctionne hors connexion. Rien n'est envoyé ailleurs que ce site.
-const VERSION = "popote-3";
+const VERSION = "popote-4";
 const CORE = [
   "./", "index.html", "app.js", "recipes.json", "manifest.webmanifest",
   "fonts/fonts.css", "icons/favicon.svg", "icons/icon-192.png", "icons/apple-touch-icon.png"
