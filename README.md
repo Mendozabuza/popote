@@ -21,7 +21,7 @@ Sur iPhone, Safari peut effacer les données d'un site non installé après quel
 
 ## Mettre à jour le site
 
-Après une modification, change `VERSION` dans `sw.js` (par exemple `popote-4`) pour que les téléphones récupèrent la nouvelle version.
+Après une modification, change `VERSION` dans `sw.js` (par exemple `popote-5`) pour que les téléphones récupèrent la nouvelle version.
 
 ## Crédits
 

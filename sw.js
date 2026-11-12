@@ -1,5 +1,5 @@
 // Popote : fonctionne hors connexion. Rien n'est envoyé ailleurs que ce site.
-const VERSION = "popote-4";
+const VERSION = "popote-5";
 const CORE = [
   "./", "index.html", "app.js", "recipes.json", "manifest.webmanifest",
   "fonts/fonts.css", "icons/favicon.svg", "icons/icon-192.png", "icons/apple-touch-icon.png"
@@ -7,7 +7,7 @@ const CORE = [
 const IMG = "popote-img";
 
 self.addEventListener("install", e => {
-  e.waitUntil(caches.open(VERSION).then(c => c.addAll(CORE)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(VERSION).then(c => c.addAll(CORE.map(u => new Request(u, { cache: "reload" })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", e => {
@@ -35,7 +35,7 @@ self.addEventListener("fetch", e => {
 
   // Le reste : réponse immédiate depuis le cache, mise à jour en arrière-plan.
   e.respondWith(caches.open(VERSION).then(c => c.match(req, { ignoreSearch: true }).then(hit => {
-    const net = fetch(req).then(res => {
+    const net = fetch(req.mode === "navigate" ? req : new Request(req, { cache: "no-cache" })).then(res => {
       if (res.ok) c.put(req, res.clone());
       return res;
     }).catch(() => hit);

@@ -23,7 +23,7 @@ const KEY="popote-v2";
 function defaults(){return{v:2,updated:0,
   profile:{sex:"",age:"",height:"",weight:"",activity:"1.375",goal:"maintien"},
   settings:{budget:45,persons:1,midi:true,soir:true,diet:"omni",noPork:false,noFish:false,allergies:[],pantry:null,maxTime:0,homeBudget:20},
-  prices:{},plan:null,locks:{},done:{},checked:{},extras:[],stock:{},history:[],fav:[],backup:0,home:[],homeLog:[],ocr:{}}}
+  prices:{},plan:null,locks:{},done:{},checked:{},extras:[],stock:{},history:[],recent:[],fav:[],backup:0,home:[],homeLog:[],ocr:{}}}
 let S=defaults(),touched=false,tab="semaine";
 let F={q:"",type:"plat",pt:"",diet:"",time:0,sort:"prix",fav:false,have:false,limit:24};
 function merge(d){const b=defaults();const o=Object.assign(b,d);o.profile=Object.assign(b.profile,d.profile||{});o.settings=Object.assign(defaults().settings,d.settings||{});return o}
@@ -153,15 +153,24 @@ function weekStats(){
 /* ---------- Générateur de semaine ---------- */
 function famKey(t){return t.toLowerCase().normalize("NFD").replace(/[^a-z ]/g,"").split(" ").filter(w=>w.length>2).slice(0,2).join(" ")}
 function ptOf(m){return m.rec.y||"vege"}
+/* Plats des semaines passées : plus c'est récent, plus on évite. */
+function recentWeights(){const o={},W=[2,3.5,5,7],R=S.recent||[];R.forEach((ids,i)=>{const wt=W[W.length-R.length+i];for(const id of ids)o[id]=Math.max(o[id]||0,wt)});return o}
 function generate(keepLocked){
-  const slots=slotList(),cands=eligiblePlats(),budget=+S.settings.budget||45;
+  const slots=slotList(),budget=+S.settings.budget||45;
+  let cands=eligiblePlats();
   if(!slots.length){toast("Choisis au moins un repas (midi ou soir) dans ton profil.");return false}
   if(cands.length<4){toast("Trop peu de recettes correspondent à tes choix. Assouplis le régime ou les allergies.");return false}
   const T=targets()||{meal:650,mealProt:25},old=S.plan?S.plan.slots:{};
   const soon=new Set(Object.keys(S.stock).filter(id=>S.stock[id].soon&&stockG(id)>0));
-  let best=null,bestScore=Infinity;
-  for(let it=0;it<45;it++){
-    const w=1+it/15;
+  if(S.plan&&S.plan.slots){const ids=Object.values(S.plan.slots).filter(Boolean);if(ids.length){S.recent=(S.recent||[]).concat([ids]).slice(-4)}}
+  const rec=recentWeights();
+  // Les plats des deux dernières semaines sont écartés, s'il reste assez de choix.
+  const ban=new Set((S.recent||[]).slice(-2).flat()),fresh=cands.filter(m=>!ban.has(m.rec.i));
+  const all=cands;if(fresh.length>=Math.max(30,slots.length*2))cands=fresh;
+  let best=null,bestScore=Infinity,bestCost=0;
+  for(let it=0;it<60;it++){
+    if(it===40&&bestCost>budget)cands=all; // budget trop serré : on rouvre aux plats récents
+    const over=best&&bestCost>budget,w=over?1.2+it/12:.6+it/60,rf=over?.5:1;
     const assign={},need={},uses={};
     for(const k of slots)if(keepLocked&&S.locks[k]&&old[k]&&RBY[old[k]]&&info(RBY[old[k]])){const m=info(RBY[old[k]]);assign[k]=old[k];addNeed(need,m,slotPortions(m));uses[old[k]]=(uses[old[k]]||0)+1}
     let prevPt=null,prevId=null,nut=0;
@@ -175,7 +184,7 @@ function generate(keepLocked){
         const id=m.rec.i,u=uses[id]||0;if(u>=2||id===prevId||sameDay.has(id))continue;
         const p=slotPortions(m);let inc=0;const pan=pantrySet();
         for(const[iid,gp]of m.per){if(pan.has(iid))continue;const before=need[iid]||0;inc+=itemCost(iid,before+gp*p)-itemCost(iid,before)}
-        let sc=inc*w+u*1.6*p+(ptOf(m)===prevPt?1.4:0)+Math.random()*2.2*p;
+        let sc=inc*w+u*4*p+(ptOf(m)===prevPt?1.4:0)+(rec[id]||0)*rf+Math.random()*3*p;
         if(T){const f=factor(m);sc+=Math.abs(m.kcal*f-T.meal)/T.meal*3+Math.max(0,T.mealProt-m.prot*f)*.06}
         for(const[iid]of m.per)if(soon.has(iid))sc-=2.5;
         const fam=famKey(m.rec.t);if(Object.values(assign).some(o=>famKey(RBY[o].t)===fam))sc+=6;
@@ -187,22 +196,25 @@ function generate(keepLocked){
     }
     const cost=shopCost(need)+(S.extras||[]).reduce((a,e)=>a+(+e.price||0),0);
     const distinct=Object.keys(uses).length,types=new Set(Object.values(assign).map(id=>ptOf(info(RBY[id])))).size;
-    const score=Math.max(0,cost-budget)*25+cost*.25-Math.min(distinct,9)*.5-types*.8+nut*2;
-    if(score<bestScore){bestScore=score;best=assign}
+    let stale=0;for(const id in uses)stale+=rec[id]||0;
+    const score=Math.max(0,cost-budget)*25+cost*.15-Math.min(distinct,12)*.8-types*.8+nut*2+stale*.5;
+    if(score<bestScore){bestScore=score;best=assign;bestCost=cost}
   }
-  S.plan={week:iso(mondayOf(new Date())),slots:best};
+  S.plan={week:iso(mondayOf(new Date())),slots:best,seen:[...new Set(Object.values(best))]};
   if(!keepLocked)S.locks={};
   S.done={};S.checked={};
   return true;
 }
 function swapSlot(k){
-  const cur=S.plan.slots[k],cands=eligiblePlats().filter(m=>m.rec.i!==cur);if(!cands.length)return;
+  const cur=S.plan.slots[k];const seen=new Set(S.plan.seen||[]);seen.add(cur);
+  let cands=eligiblePlats().filter(m=>!seen.has(m.rec.i));if(!cands.length){seen.clear();seen.add(cur);cands=eligiblePlats().filter(m=>m.rec.i!==cur)}if(!cands.length)return;
+  const rec=recentWeights();
   const need={};for(const o of slotList()){if(o===k)continue;const r=RBY[S.plan.slots[o]];const m=r&&info(r);if(m)addNeed(need,m,slotPortions(m))}
   const base=shopCost(need),T=targets()||{meal:650,mealProt:25},used=new Set(Object.values(S.plan.slots));
   const pool=[];for(let j=0;j<60;j++)pool.push(cands[Math.floor(Math.random()*cands.length)]);
   let best=null,bs=Infinity;
-  for(const m of pool){const n2=Object.assign({},need);addNeed(n2,m,slotPortions(m));let sc=shopCost(n2)-base+(used.has(m.rec.i)?2:0)+Math.random()*2;if(T)sc+=Math.abs(m.kcal*factor(m)-T.meal)/T.meal*3;if(sc<bs){bs=sc;best=m}}
-  S.plan.slots[k]=best.rec.i;delete S.done[k];commit();toast("Nouveau plat : "+best.rec.t);
+  for(const m of pool){const n2=Object.assign({},need);addNeed(n2,m,slotPortions(m));let sc=(shopCost(n2)-base)*.7+(used.has(m.rec.i)?4:0)+(rec[m.rec.i]||0)*.6+Math.random()*3;if(T)sc+=Math.abs(m.kcal*factor(m)-T.meal)/T.meal*3;if(sc<bs){bs=sc;best=m}}
+  S.plan.slots[k]=best.rec.i;seen.add(best.rec.i);S.plan.seen=[...seen];delete S.done[k];commit();toast("Nouveau plat : "+best.rec.t);
 }
 function cookSlot(k){
   const r=RBY[S.plan.slots[k]];const m=r&&info(r);if(!m)return;
